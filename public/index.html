@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ED Fuel & Nav Assistant</title>
+  <style>
+    body {
+      background-color: #0b0e14;
+      color: #e0e6ed;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 20px;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .fuel-bar-container {
+      background: #21262d;
+      border-radius: 4px;
+      height: 24px;
+      width: 100%;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .fuel-bar {
+      background: #238636;
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease, background-color 0.3s ease;
+    }
+    .warning {
+      background: #781212;
+      border: 1px solid #f85149;
+      color: #ff8e8e;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+    }
+    .recommendation {
+      background: #1f3a5f;
+      border: 1px solid #388bfd;
+      color: #58a6ff;
+      padding: 12px;
+      border-radius: 6px;
+      margin-bottom: 15px;
+    }
+    .star-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .star-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px;
+      border-bottom: 1px solid #21262d;
+    }
+    .star-item.current {
+      background: #1f2d3d;
+      font-weight: bold;
+    }
+    .scoopable { color: #3fb950; }
+    .unscoopable { color: #f85149; }
+    .badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.8em;
+      background: #30363d;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Elite Dangerous Fuel Companion</h1>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h2>Fuel Tank</h2>
+        <div id="fuel-text">0.0 / 0.0 Tons</div>
+        <div class="fuel-bar-container">
+          <div id="fuel-bar" class="fuel-bar"></div>
+        </div>
+        <p>Fuel Scoop Equipped: <b id="scoop-status">No</b></p>
+      </div>
+
+      <div style="margin-top: 20px;">
+        <div id="alert-box"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Planned Route</h2>
+      <ul id="route-list" class="star-list">
+        <li>No active route detected in NavRoute.json</li>
+      </ul>
+    </div>
+  </div>
+
+  <script>
+    const ws = new WebSocket(`ws://${location.host}`);
+    const SCOOPABLES = new Set(['K', 'O', 'B', 'A', 'F', 'G', 'M']);
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      updateUI(data);
+    };
+
+    function updateUI(data) {
+      const pct = data.fuelCapacity ? (data.currentFuel / data.fuelCapacity) * 100 : 0;
+      const fuelBar = document.getElementById('fuel-bar');
+      fuelBar.style.width = `${pct}%`;
+      fuelBar.style.backgroundColor = pct < 25 ? '#da3633' : '#238636';
+
+      document.getElementById('fuel-text').innerText = 
+        `${data.currentFuel.toFixed(1)} / ${data.fuelCapacity.toFixed(1)} Tons (${pct.toFixed(0)}%)`;
+      
+      document.getElementById('scoop-status').innerText = data.hasFuelScoop ? 'YES' : 'NO';
+
+      const alertBox = document.getElementById('alert-box');
+      alertBox.innerHTML = '';
+
+      if (data.willRunOut) {
+        alertBox.innerHTML += `
+          <div class="warning">
+            ⚠️ <b>CRITICAL WARNING:</b> You will run out of fuel before completing this route! Estimated failure point: <b>${data.outOfFuelAtSystem}</b>.
+          </div>`;
+      }
+
+      if (data.recommendedStop) {
+        const stop = data.recommendedStop;
+        const icon = stop.type === 'FUEL_SCOOP' ? '⛽' : '0x1F689';
+        alertBox.innerHTML += `
+          <div class="recommendation">
+            ${icon} <b>RECOMMENDED STOP:</b> Jump to <b>${stop.system}</b> (${stop.starClass}-Class).<br/>
+            <small>${stop.reason}</small>
+          </div>`;
+      }
+
+      const routeList = document.getElementById('route-list');
+      if (!data.route || !data.route.length) {
+        routeList.innerHTML = '<li>No active route plot.</li>';
+        return;
+      }
+
+      routeList.innerHTML = data.route.map((item, idx) => {
+        const starClass = item.StarClass ? item.StarClass[0].toUpperCase() : '?';
+        const isScoop = SCOOPABLES.has(starClass);
+        const isCurrent = idx === data.currentSystemIndex;
+
+        return `
+          <li class="star-item ${isCurrent ? 'current' : ''}">
+            <span>${isCurrent ? '▶ ' : ''}${item.StarSystem}</span>
+            <span>
+              <span class="${isScoop ? 'scoopable' : 'unscoopable'}">${starClass}-Class</span>
+              <span class="badge">${isScoop ? 'SCOOPABLE' : 'NO SCOOP'}</span>
+            </span>
+          </li>
+        `;
+      }).join('');
+    }
+  </script>
+</body>
+</html>
